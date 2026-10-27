@@ -1,0 +1,37 @@
+/* Дополнения к стилям прототипа для реальных данных */
+.ph.np{background:var(--soft)}
+.state{padding:0 18px;text-align:center;color:var(--mut)}
+.state .b{margin-top:12px}
+
+.main .list > .state.state-center,
+.main .list > .state.state-error,
+.main .list > .state.state-empty,
+.cw.wide .list > .state.saved-empty {
+  min-height: 220px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  box-sizing: border-box;
+  padding: 0 16px;
+  grid-column: 1 / -1;
+}
+
+.main .list > .state.state-error,
+.main .list > .state.state-center {
+  flex-direction: column;
+}
+
+.main .list > .state.state-error p {
+  margin: 0;
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+.main .list > .state.state-error .b {
+  margin-top: 16px;
+}
+
+.msg.srv{background:#fdecef;border-radius:10px;padding:8px 12px;margin-bottom:12px}
+.delbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fdecef;border:1px solid #f3c7cf;border-radius:14px;padding:10px 12px;font-size:14px;font-weight:600}
+.delbar span{flex:1;min-width:130px}.delbar .b{height:36px;padding:0 12px}

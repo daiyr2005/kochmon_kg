@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/demo.ts","./src/main.tsx","./src/toast.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/account.tsx","./src/components/authscreen.tsx","./src/components/cards.tsx","./src/components/find.tsx","./src/components/icon.tsx","./src/components/sheets.tsx","./src/hooks/usespeech.ts"],"version":"5.9.3"}
