@@ -4,7 +4,10 @@ import { DEMO_ADS, DEMO_BANNERS, DEMO_WEB } from './demo';
 const normalizeBase = (value: string): string => {
   const trimmed = value.trim().replace(/\/+$/, '');
   if (!trimmed) return '/api';
-  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+
+  const hasProtocol = /^https?:\/\//i.test(trimmed) || trimmed.startsWith('//');
+  const base = hasProtocol ? trimmed : /^\//.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return base.endsWith('/api') ? base : `${base}/api`;
 };
 
 export const BASE: string = normalizeBase(import.meta.env.VITE_API_URL ?? '/api');
@@ -103,10 +106,12 @@ const match = (x: Item, q: string, f: Filters) => {
   const min = f.priceMin ? parsePrice(f.priceMin) : null;
   const max = f.priceMax ? parsePrice(f.priceMax) : null;
   const price = parsePrice(x.price);
+  const title = String(x.title ?? '').toLowerCase();
+  const place = String(x.place ?? '').toLowerCase();
 
   return (
-    (!q || x.title.toLowerCase().includes(q.toLowerCase())) &&
-    (!f.city || x.place.toLowerCase().includes(f.city.toLowerCase())) &&
+    (!q || title.includes(q.toLowerCase())) &&
+    (!f.city || place.includes(f.city.toLowerCase())) &&
     (!f.country || x.country === f.country) &&
     (min === null || price === null || price >= min) &&
     (max === null || price === null || price <= max) &&
