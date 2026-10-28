@@ -16,7 +16,6 @@ export function Sheet({ children, onClose, ai }: { children: ReactNode; onClose:
 }
 
 export function FilterSheet({ value, kind, onApply, onClose }: { value: Filters; kind: 'web' | 'ads'; onApply: (f: Filters) => void; onClose: () => void }) {
-  const toast = useToast();
   const [f, setF] = useState(value);
   return (
     <Sheet onClose={onClose}>
@@ -32,7 +31,7 @@ export function FilterSheet({ value, kind, onApply, onClose }: { value: Filters;
       {kind === 'ads' && (
         <>
           <div className="br" style={{ marginBottom: 12 }}>
-            {['Аренда', 'Продажа', 'Посуточно'].map((c) => <button key={c} className="chip" onClick={() => toast('Фильтр по типу объявления появится позже')}>{c}</button>)}
+            {['Аренда', 'Продажа', 'Посуточно'].map((c) => <button key={c} className="chip" aria-pressed={f.dealType === c} onClick={() => setF({ ...f, dealType: f.dealType === c ? '' : c })}>{c}</button>)}
           </div>
           <label className="row" style={{ border: 0, paddingTop: 0 }}>Только доступные
             <input className="tg" type="checkbox" checked={f.onlyAvailable} onChange={(e) => setF({ ...f, onlyAvailable: e.target.checked })} />
@@ -40,7 +39,7 @@ export function FilterSheet({ value, kind, onApply, onClose }: { value: Filters;
         </>
       )}
       <div className="two">
-        <button className="b" onClick={() => onApply({ country: '', city: '', onlyAvailable: false, priceMin: '', priceMax: '' })}>Сбросить</button>
+        <button className="b" onClick={() => onApply({ country: '', city: '', onlyAvailable: false, priceMin: '', priceMax: '', dealType: '' })}>Сбросить</button>
         <button className="b p" onClick={() => onApply(f)}>Показать</button>
       </div>
     </Sheet>
@@ -136,6 +135,7 @@ export function AiSheet({ onOpen, onClose }: { onOpen: (x: Item) => void; onClos
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState('');
   const [photo, setPhoto] = useState<string>();
+  const [photoFile, setPhotoFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const convo = useRef<string>();
   const gen = useRef(0); // номер чата: ответы от удалённого чата игнорируются
@@ -152,11 +152,13 @@ export function AiSheet({ onOpen, onClose }: { onOpen: (x: Item) => void; onClos
     setText('');
     const g = gen.current;
     const img = photo;
+    const imgFile = photoFile;
     setPhoto(undefined);
+    setPhotoFile(undefined);
     setMsgs((m) => [...m, { role: 'user', text: q, image: img }, { role: 'ai', step: 0 }]);
     const tick = window.setInterval(() => setMsgs((m) => m.map((x, i) => (i === m.length - 1 && x.role === 'ai' && x.step < 2 ? { ...x, step: x.step + 1 } : x))), 650);
     try {
-      const reply = await aiChat(q, convo.current);
+      const reply = await aiChat(q, convo.current, imgFile);
       if (g !== gen.current) return;
       convo.current = (reply as { conversationId?: string }).conversationId ?? convo.current;
       setMsgs((m) => m.map((x, i) => (i === m.length - 1 ? { role: 'ai', step: 3, reply } : x)));
@@ -173,6 +175,7 @@ export function AiSheet({ onOpen, onClose }: { onOpen: (x: Item) => void; onClos
     gen.current += 1;
     setMsgs([]);
     setPhoto(undefined);
+    setPhotoFile(undefined);
     setText('');
     setBusy(false);
     convo.current = undefined;
@@ -180,9 +183,10 @@ export function AiSheet({ onOpen, onClose }: { onOpen: (x: Item) => void; onClos
 
   function pick(f?: File) {
     if (!f) return;
-    if (!f.type.startsWith('image/')) return toast('Выберите файл-изображение');
-    if (f.size > 10 * 1024 * 1024) return toast('Фото слишком большое: до 10 МБ');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) return toast('Выберите JPEG, PNG или WebP');
+    if (f.size > 8 * 1024 * 1024) return toast('Фото должно быть не больше 8 МБ');
     setPhoto(URL.createObjectURL(f));
+    setPhotoFile(f);
   }
 
   return (
@@ -225,7 +229,7 @@ export function AiSheet({ onOpen, onClose }: { onOpen: (x: Item) => void; onClos
           ))}
         </div>
         <div className="comp">
-          {photo && <div className="pchip"><img src={photo} alt="" /><span>Фото для поиска</span><button className="ib" aria-label="Убрать фото" style={{ width: 26, height: 26 }} onClick={() => setPhoto(undefined)}>✕</button></div>}
+          {photo && <div className="pchip"><img src={photo} alt="" /><span>Фото для поиска</span><button className="ib" aria-label="Убрать фото" style={{ width: 26, height: 26 }} onClick={() => { setPhoto(undefined); setPhotoFile(undefined); }}>✕</button></div>}
           <div className="cbx">
             <input ref={file} type="file" accept="image/*" hidden onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
             <button className="ib" aria-label="Фото" disabled={!FEATURES.aiImages} title={FEATURES.aiImages ? 'Фото' : 'Анализ фото скоро появится'} onClick={() => file.current?.click()}><Icon n="c" /></button>

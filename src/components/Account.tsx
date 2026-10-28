@@ -1,11 +1,18 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, DEMO, getChannels, getListings, linkTelegram, linkWhatsapp, submitCampaign, createListing, unlinkChannel, type Channel } from '../api';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { ApiError, DEMO, changePassword, fetchProfile, getChannels, getListings, getNotificationPreferences, linkTelegram, linkWhatsapp, submitCampaign, createListing, updateListing, unlinkChannel, updateMe, updateNotificationPreferences, verifyWhatsapp, type Channel, type NotificationPreferences } from '../api';
 import { useToast } from '../toast';
 import type { Item, Session } from '../types';
 import { ListingCard } from './Cards';
 import { Icon } from './Icon';
 
-const NOTIFY = ['Новые объявления по категориям', 'Новые объекты в выбранном городе', 'Изменение цены сохранённого', 'Ответы на обращения', 'Подтверждение и изменение брони', 'Напоминания о бронировании'];
+const NOTIFY: [keyof NotificationPreferences, string][] = [
+  ['new_listings_by_category', 'Новые объявления по категориям'],
+  ['new_objects_in_city', 'Новые объекты в выбранном городе'],
+  ['saved_price_change', 'Изменение цены сохранённого'],
+  ['inquiry_replies', 'Ответы на обращения'],
+  ['booking_updates', 'Подтверждение и изменение брони'],
+  ['booking_reminders', 'Напоминания о бронировании'],
+];
 
 export function Saved({ items, saved, onOpen, onSave }: { items: Item[]; saved: Set<string>; onOpen: (x: Item) => void; onSave: (x: Item) => void }) {
   return (
@@ -44,9 +51,44 @@ export function Profile({ session, savedCount, go, onLogout }: { session: Sessio
   const toast = useToast();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [phone, setPhone] = useState('');
+  const [whatsappChallenge, setWhatsappChallenge] = useState('');
+  const [whatsappCode, setWhatsappCode] = useState('');
   const [busy, setBusy] = useState(false);
-  const refresh = () => getChannels().then(setChannels).catch(() => setChannels([]));
+  const [profileName, setProfileName] = useState(session.name);
+  const [profilePhone, setProfilePhone] = useState('');
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [notifications, setNotifications] = useState<NotificationPreferences>({
+    new_listings_by_category: true,
+    new_objects_in_city: true,
+    saved_price_change: true,
+    inquiry_replies: false,
+    booking_updates: false,
+    booking_reminders: false,
+  });
+  const [savingNotifications, setSavingNotifications] = useState(false);
+  const refresh = () => getChannels().then(setChannels).catch((e: Error) => toast(e.message));
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    let active = true;
+    getNotificationPreferences().then((value) => { if (active) setNotifications(value); })
+      .catch((e: Error) => { if (active) toast(e.message); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (DEMO) return;
+    let active = true;
+    fetchProfile().then((profile) => {
+      if (active) {
+        setProfileName(profile.full_name ?? session.name);
+        setProfilePhone(profile.phone ?? '');
+      }
+    }).catch((e: Error) => { if (active) toast(e.message); });
+    return () => { active = false; };
+  }, [session.name]);
   const tg = channels.find((c) => c.type === 'telegram');
   const wa = channels.find((c) => c.type === 'whatsapp');
 
@@ -55,22 +97,67 @@ export function Profile({ session, savedCount, go, onLogout }: { session: Sessio
     try { await fn(); if (ok) toast(ok); await refresh(); } catch (e) { toast((e as ApiError).message); } finally { setBusy(false); }
   }
 
+  async function saveProfile() {
+    if (profileName.trim().length < 2) return toast('Имя должно содержать минимум 2 символа');
+    await run(async () => {
+      const updated = await updateMe({ full_name: profileName.trim(), phone: profilePhone.trim() });
+      setProfileName(updated.full_name ?? session.name);
+      setProfilePhone(updated.phone ?? '');
+      setEditingProfile(false);
+    }, 'Профиль обновлён');
+  }
+
+  async function savePassword() {
+    if (newPassword.length < 8 || !/[A-Za-zА-Яа-я]/.test(newPassword) || !/\d/.test(newPassword)) {
+      return toast('Новый пароль: минимум 8 символов, хотя бы одна буква и одна цифра');
+    }
+    if (newPassword !== confirmPassword) return toast('Пароли не совпадают');
+    await run(async () => {
+      await changePassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordOpen(false);
+    }, 'Пароль изменён');
+  }
+
+  async function saveNotification(key: keyof NotificationPreferences, checked: boolean) {
+    const previous = notifications;
+    const next = { ...notifications, [key]: checked };
+    setNotifications(next);
+    setSavingNotifications(true);
+    try { setNotifications(await updateNotificationPreferences(next)); }
+    catch (e) { setNotifications(previous); toast((e as Error).message); }
+    finally { setSavingNotifications(false); }
+  }
+
   return (
     <div className="cw">
       <div className="pg"><h1>Профиль</h1><p>Настройки аккаунта</p></div>
-      <div className="me"><div className="av">{session.name[0]?.toUpperCase()}</div><div><b>{session.name}</b>{DEMO && <><br /><small style={{ color: 'var(--mut)' }}>Демо-аккаунт</small></>}</div></div>
+      <div className="me"><div className="av">{profileName[0]?.toUpperCase()}</div><div><b>{profileName}</b>{DEMO && <><br /><small style={{ color: 'var(--mut)' }}>Демо-аккаунт</small></>}</div></div>
       <div className="acts" style={{ paddingTop: 10 }}><button onClick={() => go('mine')}>Мои объявления</button><button className="p" onClick={() => go('add')}>+ Объявление</button></div>
       <div className="sl">Аккаунт</div>
       <div className="sec">
-        <div className="row" style={{ cursor: 'pointer' }} onClick={() => toast('Редактирование профиля появится позже')}>Личные данные<small>Изменить ›</small></div>
-        <div className="row" style={{ cursor: 'pointer' }} onClick={() => toast('Смена пароля появится позже')}>Безопасность и пароль<small>Изменить ›</small></div>
+        <button className="row" style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }} onClick={() => setEditingProfile(!editingProfile)}>Личные данные<small>{editingProfile ? 'Скрыть' : 'Изменить ›'}</small></button>
+        {editingProfile && <div className="ch">
+          <label>Имя</label><input className="inp" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+          <label>Телефон</label><input className="inp" inputMode="tel" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} />
+          <button className="b p" disabled={busy} onClick={() => void saveProfile()}>Сохранить данные</button>
+        </div>}
+        <button className="row" style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }} onClick={() => setPasswordOpen(!passwordOpen)}>Безопасность и пароль<small>{passwordOpen ? 'Скрыть' : 'Изменить ›'}</small></button>
+        {passwordOpen && <div className="ch">
+          <label>Текущий пароль</label><input className="inp" type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+          <label>Новый пароль</label><input className="inp" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+          <label>Повторите пароль</label><input className="inp" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+          <button className="b p" disabled={busy} onClick={() => void savePassword()}>Изменить пароль</button>
+        </div>}
         <div className="row">Язык интерфейса<select className="b" style={{ height: 36 }} defaultValue="ru"><option value="ru">Русский</option><option value="ky">Кыргызча</option><option value="en">English</option></select></div>
         <div className="row" style={{ cursor: 'pointer' }} onClick={() => go('saved')}>Управление избранным<small>{savedCount} ›</small></div>
       </div>
       <div className="sl">Реклама</div>
       <div className="sec"><div className="row"><span>Покажите отель или объект в блоке «Реклама» и в результатах поиска</span></div><div className="ch" style={{ paddingTop: 0 }}><button className="b p" style={{ width: '100%' }} onClick={() => go('adv')}>Разместить рекламу</button><div className="note" style={{ padding: '8px 0 0' }}>Заявок пока нет</div></div></div>
       <div className="sl">Уведомления</div>
-      <div className="sec">{NOTIFY.map((n, i) => <label key={n} className="row">{n}<input className="tg" type="checkbox" defaultChecked={i < 3} onChange={() => toast('Настройки пока не сохраняются: нужен маршрут на backend')} /></label>)}</div>
+      <div className="sec">{NOTIFY.map(([key, label]) => <label key={key} className="row">{label}<input className="tg" type="checkbox" checked={notifications[key]} disabled={savingNotifications} onChange={(e) => void saveNotification(key, e.target.checked)} /></label>)}</div>
       <div className="sl">Каналы</div>
       <div className="sec">
         <div className="ch">
@@ -83,9 +170,11 @@ export function Profile({ session, savedCount, go, onLogout }: { session: Sessio
         </div>
         <div className="ch" style={{ borderTop: '1px solid var(--line)' }}>
           <div className="chh">WhatsApp<span className="pill">{wa ? 'Подключено' : 'Не подключено'}</span></div>
-          {!wa && <input className="inp" placeholder="+996 700 000 000" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}
+          {!wa && !whatsappChallenge && <input className="inp" placeholder="+996 700 000 000" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}
+          {!wa && whatsappChallenge && <input className="inp" placeholder="Код из WhatsApp" inputMode="numeric" value={whatsappCode} onChange={(e) => setWhatsappCode(e.target.value)} />}
           <div className="br">
-            {!wa && <button className="b p" disabled={busy} onClick={() => (phone.replace(/\D/g, '').length < 10 ? toast('Введите номер WhatsApp полностью, например +996 700 000 000') : void run(() => linkWhatsapp(phone), 'Код подтверждения отправлен'))}>Подключить WhatsApp</button>}
+            {!wa && !whatsappChallenge && <button className="b p" disabled={busy} onClick={() => (phone.replace(/\D/g, '').length < 10 ? toast('Введите номер WhatsApp полностью, например +996 700 000 000') : void run(async () => { const result = await linkWhatsapp(phone); setWhatsappChallenge(result.challengeId); }, 'Код подтверждения отправлен'))}>Подключить WhatsApp</button>}
+            {!wa && whatsappChallenge && <button className="b p" disabled={busy || whatsappCode.length !== 6} onClick={() => void run(async () => { await verifyWhatsapp(whatsappChallenge, whatsappCode); setWhatsappChallenge(''); setWhatsappCode(''); }, 'WhatsApp подключён')}>Подтвердить код</button>}
             <button className="b" disabled={busy || !wa} onClick={() => wa && void run(() => unlinkChannel(wa.id), 'WhatsApp отключён')}>Отключить</button>
           </div>
         </div>
@@ -95,8 +184,7 @@ export function Profile({ session, savedCount, go, onLogout }: { session: Sessio
   );
 }
 
-export function MyListings({ onBack, onOpen, onAdd, onDelete, onArchive, removed }: { onBack: () => void; onOpen: (x: Item) => void; onAdd: () => void; onDelete: (x: Item) => void; onArchive: (x: Item) => Promise<void>; removed: Set<string> }) {
-  const toast = useToast();
+export function MyListings({ onBack, onOpen, onAdd, onEdit, onDelete, onArchive, onToggleAvailability, removed }: { onBack: () => void; onOpen: (x: Item) => void; onAdd: () => void; onEdit: (x: Item) => void; onDelete: (x: Item) => void; onArchive: (x: Item) => Promise<void>; onToggleAvailability: (x: Item) => Promise<void>; removed: Set<string> }) {
   const [state, setState] = useState<{ loading: boolean; error: string; items: Item[] }>({ loading: true, error: '', items: [] });
   const [n, setN] = useState(0);
   useEffect(() => {
@@ -118,9 +206,9 @@ export function MyListings({ onBack, onOpen, onAdd, onDelete, onArchive, removed
             <div className="pl"><Icon n="p" size={14} />{x.place} · {x.price}</div>
             <div style={{ margin: '8px 0' }}><span className={'bd inline ' + (x.status === 'Доступно' ? 'ok' : 'no')}>{x.status}</span></div>
             <div className="br" onClick={(e) => e.stopPropagation()}>
-              <button className="b" onClick={() => toast('Редактирование объявлений появится, когда его поддержит backend')}>Редактировать</button>
-              <button className="b" onClick={() => void onArchive(x).then(() => setN(n + 1))}>В архив</button>
-              <button className="b" onClick={() => toast('Смена доступности появится, когда её поддержит backend')}>Недоступно</button>
+              <button className="b" onClick={() => onEdit(x)}>Редактировать</button>
+              <button className="b" disabled={x.status !== 'Доступно'} onClick={() => void onArchive(x).then(() => setN(n + 1))}>В архив</button>
+              <button className="b" onClick={() => void onToggleAvailability(x).then(() => setN(n + 1))}>{x.status === 'Доступно' ? 'Сделать недоступным' : 'Сделать доступным'}</button>
               <button className="b" style={{ color: '#d92d4a', borderColor: '#f3c7cf' }} onClick={() => onDelete(x)}>Удалить</button>
             </div>
           </article>
@@ -137,20 +225,31 @@ function useForm(initial: Record<string, string>) {
   return { v, on: (k: string) => ({ value: v[k], onChange: (e: { target: { value: string } }) => setV((p) => ({ ...p, [k]: e.target.value })) }) };
 }
 
-export function AddListing({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
+export function AddListing({ item, onBack, onDone }: { item?: Item; onBack: () => void; onDone: () => void }) {
   const toast = useToast();
-  const { v, on } = useForm({ title: '', city: '', price: '', category: 'Квартира', kind: 'Аренда', description: '', phone: '' });
+  const { v, on } = useForm(item
+    ? { title: item.title, city: item.place.split(',')[0].trim(), price: item.price.replace(/[^\d,.-]/g, '').replace(/\s/g, ''), category: item.tag, kind: item.dealType ?? 'Аренда', description: item.description, phone: item.phone ?? '' }
+    : { title: '', city: '', price: '', category: 'Квартира', kind: 'Аренда', description: '', phone: '' });
   const [busy, setBusy] = useState(false);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!v.title.trim()) return toast('Введите название объявления');
     if (!v.city.trim()) return toast('Укажите город');
+    if (!v.price.trim()) return toast('Укажите цену');
     setBusy(true);
-    try { await createListing(v); toast('Объявление отправлено'); onDone(); } catch (err) { toast((err as Error).message); } finally { setBusy(false); }
+    try {
+      if (item) await updateListing(item.id, v, photo ?? undefined, removePhoto);
+      else await createListing(v, photo ?? undefined);
+      toast(item ? 'Объявление обновлено' : 'Объявление опубликовано');
+      onDone();
+    } catch (err) { toast((err as Error).message); } finally { setBusy(false); }
   }
   return (
     <div className="cw">
-      <div className="pg"><button className="b" style={{ height: 36 }} onClick={onBack}>‹ Назад</button><h1 style={{ marginTop: 12 }}>Новое объявление</h1></div>
+      <div className="pg"><button className="b" style={{ height: 36 }} onClick={onBack}>‹ Назад</button><h1 style={{ marginTop: 12 }}>{item ? 'Редактировать объявление' : 'Новое объявление'}</h1></div>
       <form className="fm" style={{ padding: '0 18px' }} onSubmit={(e) => void submit(e)}>
         <label>Название</label><input className="inp" placeholder="Например: 2-комн. квартира" {...on('title')} />
         <div className="two"><div><label>Город</label><input className="inp" placeholder="Бишкек" {...on('city')} /></div><div><label>Цена, сом</label><input className="inp" inputMode="numeric" placeholder="55000" {...on('price')} /></div></div>
@@ -160,8 +259,17 @@ export function AddListing({ onBack, onDone }: { onBack: () => void; onDone: () 
         </div>
         <label>Описание</label><textarea className="inp" placeholder="Коротко об объекте" {...on('description')} />
         <label>Контакты</label><input className="inp" inputMode="tel" placeholder="+996 ..." {...on('phone')} />
-        <button type="button" className="b" style={{ width: '100%', marginBottom: 10 }} onClick={() => toast('Загрузка фото появится, когда её поддержит backend')}>+ Добавить фото</button>
-        <button className="b p" style={{ width: '100%' }} disabled={busy}>{busy ? 'Отправка…' : 'Опубликовать'}</button>
+        <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && file.size > 8 * 1024 * 1024) toast('Фото должно быть не больше 8 МБ');
+          else if (file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) toast('Выберите JPEG, PNG или WebP');
+          else if (file) setPhoto(file);
+          e.target.value = '';
+        }} />
+        <button type="button" className="b" style={{ width: '100%', marginBottom: 10 }} onClick={() => photoInput.current?.click()}>{photo ? photo.name : '+ Добавить фото'}</button>
+        {photo && <button type="button" className="b" style={{ width: '100%', marginBottom: 10 }} onClick={() => setPhoto(null)}>Убрать выбранное фото</button>}
+        {item?.photo && !removePhoto && <button type="button" className="b" style={{ width: '100%', marginBottom: 10 }} onClick={() => setRemovePhoto(true)}>Убрать текущее фото</button>}
+        <button className="b p" style={{ width: '100%' }} disabled={busy}>{busy ? 'Отправка…' : item ? 'Сохранить изменения' : 'Опубликовать'}</button>
       </form>
     </div>
   );
@@ -171,12 +279,15 @@ export function AdForm({ onBack, onDone }: { onBack: () => void; onDone: () => v
   const toast = useToast();
   const { v, on } = useForm({ title: '', city: '', type: 'Отель', placement: 'Блок «Реклама отелей»', days: '7 дней', description: '', phone: '' });
   const [busy, setBusy] = useState(false);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!v.title.trim()) return toast('Введите название объекта');
     if (!v.city.trim()) return toast('Укажите город');
+    if (v.phone.replace(/\D/g, '').length < 10) return toast('Укажите контактный телефон');
     setBusy(true);
-    try { await submitCampaign(v); toast('Заявка отправлена на модерацию'); onDone(); } catch (err) { toast((err as Error).message); } finally { setBusy(false); }
+    try { await submitCampaign(v, photo ?? undefined); toast('Заявка отправлена на модерацию'); onDone(); } catch (err) { toast((err as Error).message); } finally { setBusy(false); }
   }
   return (
     <div className="cw">
@@ -188,7 +299,15 @@ export function AdForm({ onBack, onDone }: { onBack: () => void; onDone: () => v
         <label>Срок</label><select className="inp" {...on('days')}>{['7 дней', '14 дней', '30 дней'].map((c) => <option key={c}>{c}</option>)}</select>
         <label>Описание</label><textarea className="inp" placeholder="Что предлагаете гостям" {...on('description')} />
         <label>Контакты</label><input className="inp" inputMode="tel" placeholder="+996 ..." {...on('phone')} />
-        <button type="button" className="b" style={{ width: '100%', marginBottom: 10 }} onClick={() => toast('Загрузка фото появится, когда её поддержит backend')}>+ Добавить фото</button>
+        <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && file.size > 8 * 1024 * 1024) toast('Фото должно быть не больше 8 МБ');
+          else if (file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) toast('Выберите JPEG, PNG или WebP');
+          else if (file) setPhoto(file);
+          e.target.value = '';
+        }} />
+        <button type="button" className="b" style={{ width: '100%', marginBottom: 10 }} onClick={() => photoInput.current?.click()}>{photo ? photo.name : '+ Добавить фото'}</button>
+        {photo && <button type="button" className="b" style={{ width: '100%', marginBottom: 10 }} onClick={() => setPhoto(null)}>Убрать фото</button>}
         <div className="note" style={{ padding: '0 0 12px', textAlign: 'left' }}>Реклама всегда помечается «Реклама». Стоимость называет менеджер после заявки.</div>
         <button className="b p" style={{ width: '100%' }} disabled={busy}>{busy ? 'Отправка…' : 'Отправить заявку'}</button>
       </form>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { DEMO, addFavorite, deactivateListing, deleteListing, fetchMe, getBanner, getFavorites, logout, removeFavorite, setToken } from './api';
+import { DEMO, addFavorite, deactivateListing, deleteListing, fetchMe, getBanner, getFavorites, logout, publishListing, removeFavorite, setToken } from './api';
 import AuthScreen from './components/AuthScreen';
 import { ItemDetail } from './components/Cards';
 import { AdForm, AddListing, GuestProfile, MyListings, Profile, Saved } from './components/Account';
@@ -30,7 +30,7 @@ export default function App() {
 
   const remember = useCallback((items: Item[]) => setCache((c) => ({ ...c, ...Object.fromEntries(items.map((x) => [x.id, x])) })), []);
 
-  useEffect(() => { void getBanner().then(setBanner); }, []);
+  useEffect(() => { void getBanner().then(setBanner).catch((e: Error) => toast(e.message)); }, [toast]);
   useEffect(() => { scr.current?.scrollTo(0, 0); }, [tab, view]);
 
   // Возврат из Google OAuth: backend должен передать токен во фрагменте URL (#access_token=...), он не попадает в логи сервера.
@@ -38,6 +38,7 @@ export default function App() {
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const query = new URLSearchParams(window.location.search);
     const t = hash.get('access_token') ?? query.get('access_token');
+    const r = hash.get('refresh_token') ?? query.get('refresh_token');
     const err = query.get('error') ?? hash.get('error');
     if (err) {
       window.history.replaceState(null, '', window.location.pathname);
@@ -46,7 +47,7 @@ export default function App() {
     }
     if (!t) return;
     window.history.replaceState(null, '', window.location.pathname);
-    setToken(t);
+    setToken(t, r);
     fetchMe().then(enter).catch((e: Error) => toast(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -57,7 +58,7 @@ export default function App() {
     setView(null);
     toast(s.kind === 'guest' ? 'Вы вошли как гость' : `Добро пожаловать, ${s.name}`);
     if (s.kind === 'user') {
-      getFavorites().then((items) => { remember(items); setSaved(new Set(items.map((x) => x.id))); }).catch(() => undefined);
+      getFavorites().then((items) => { remember(items); setSaved(new Set(items.map((x) => x.id))); }).catch((e: Error) => toast(e.message));
     }
   }
 
@@ -86,6 +87,13 @@ export default function App() {
   async function archive(x: Item) {
     try { await deactivateListing(x.id); toast('Объявление отправлено в архив'); } catch (e) { toast((e as Error).message); }
   }
+  async function toggleAvailability(x: Item) {
+    try {
+      if (x.status === 'Доступно') await deactivateListing(x.id);
+      else await publishListing(x.id);
+      toast(x.status === 'Доступно' ? 'Объявление стало недоступным' : 'Объявление снова доступно');
+    } catch (e) { toast((e as Error).message); }
+  }
 
   const savedItems = [...saved].map((id) => cache[id]).filter(Boolean);
   const popular = Object.values(cache).filter((x) => (x.likes ?? 0) > 0).sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0)).slice(0, 3);
@@ -95,8 +103,9 @@ export default function App() {
   let body;
   if (view?.k === 'item') {
     body = item ? <ItemDetail x={item} ad={view.ad} saved={saved.has(item.id)} canEdit={false} onBack={back} onSave={() => toggleSave(item)} onToast={toast} /> : <div className="state">Объект не найден<br /><button className="b p" onClick={back}>Назад</button></div>;
-  } else if (view?.k === 'mine') body = <MyListings onBack={back} onOpen={(x) => open(x)} onAdd={() => setView({ k: 'add' })} onDelete={(x) => setSheet({ k: 'confirm', id: x.id })} onArchive={archive} removed={removed} />;
+  }   else if (view?.k === 'mine') body = <MyListings onBack={back} onOpen={(x) => open(x)} onAdd={() => setView({ k: 'add' })} onEdit={(item) => setView({ k: 'edit', item })} onDelete={(x) => setSheet({ k: 'confirm', id: x.id })} onArchive={archive} onToggleAvailability={toggleAvailability} removed={removed} />;
   else if (view?.k === 'add') body = <AddListing onBack={back} onDone={() => setView({ k: 'mine' })} />;
+  else if (view?.k === 'edit') body = <AddListing item={view.item} onBack={back} onDone={() => setView({ k: 'mine' })} />;
   else if (view?.k === 'adv') body = <AdForm onBack={back} onDone={back} />;
   else if (tab === 'saved') body = <Saved items={savedItems} saved={saved} onOpen={(x) => open(x)} onSave={toggleSave} />;
   else if (tab === 'prof') {

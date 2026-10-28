@@ -36,6 +36,7 @@ export default function Find({
   const [q, setQ] = useState('');
   const [chip, setChip] = useState('Все');
   const [photo, setPhoto] = useState<string>();
+  const [photoFile, setPhotoFile] = useState<File>();
   const [state, setState] = useState<{
     loading: boolean;
     error: string;
@@ -55,7 +56,8 @@ export default function Find({
     filters.city ||
     filters.priceMin ||
     filters.priceMax ||
-    filters.onlyAvailable
+    filters.onlyAvailable ||
+    filters.dealType
   );
 
   useEffect(() => {
@@ -65,14 +67,14 @@ export default function Find({
       .then((item) => {
         if (live) setBanner(item);
       })
-      .catch(() => {
-        if (live) setBanner(null);
+      .catch((e: Error) => {
+        if (live) toast(e.message);
       });
 
     return () => {
       live = false;
     };
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     let live = true;
@@ -86,7 +88,7 @@ export default function Find({
     const timer = window.setTimeout(() => {
       const request =
         cat === 'web'
-          ? searchWeb(q, filters)
+          ? searchWeb(q, filters, photoFile)
           : getListings({ q, filters });
 
       request
@@ -120,7 +122,7 @@ export default function Find({
       live = false;
       window.clearTimeout(timer);
     };
-  }, [cat, q, filters, retry, onLoaded]);
+  }, [cat, q, filters, photoFile, retry, onLoaded]);
 
   useEffect(() => {
     return () => {
@@ -176,16 +178,18 @@ export default function Find({
             <input
               ref={file}
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               hidden
               onChange={(e) => {
                 const selectedFile = e.target.files?.[0];
 
-                if (
-                  selectedFile &&
-                  selectedFile.type.startsWith('image/')
-                ) {
+                if (selectedFile && !['image/jpeg', 'image/png', 'image/webp'].includes(selectedFile.type)) {
+                  toast('Выберите JPEG, PNG или WebP');
+                } else if (selectedFile && selectedFile.size > 8 * 1024 * 1024) {
+                  toast('Фото должно быть не больше 8 МБ');
+                } else if (selectedFile) {
                   setPhoto(URL.createObjectURL(selectedFile));
+                  setPhotoFile(selectedFile);
                 }
 
                 e.target.value = '';
@@ -195,10 +199,10 @@ export default function Find({
             <button
               className="ib"
               aria-label="Поиск по фото"
-              disabled={!FEATURES.imageSearch}
+              disabled={!FEATURES.imageSearch || cat !== 'web'}
               title={
                 FEATURES.imageSearch
-                  ? 'Поиск по фото'
+                  ? cat === 'web' ? 'Поиск по фото' : 'Переключитесь на интернет-поиск'
                   : 'Поиск по фото скоро появится'
               }
               onClick={() => file.current?.click()}
@@ -234,7 +238,7 @@ export default function Find({
               className="ib"
               aria-label="Убрать фото"
               style={{ width: 26, height: 26 }}
-              onClick={() => setPhoto(undefined)}
+              onClick={() => { setPhoto(undefined); setPhotoFile(undefined); }}
             >
               ✕
             </button>

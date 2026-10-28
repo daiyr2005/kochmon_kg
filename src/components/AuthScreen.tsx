@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ApiError, BASE, DEMO, login, register, requestPasswordReset } from '../api';
+import { ApiError, BASE, DEMO, confirmPasswordReset, login, register, requestPasswordReset } from '../api';
 import type { Session } from '../types';
 import { useToast } from '../toast';
 import { Logo } from './Icon';
@@ -28,7 +28,8 @@ const GoogleIcon = () => (
 
 export default function AuthScreen({ onEnter }: { onEnter: (s: Session) => void }) {
   const toast = useToast();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const resetToken = new URLSearchParams(window.location.search).get('reset_token');
+  const [mode, setMode] = useState<'login' | 'register' | 'reset'>(resetToken ? 'reset' : 'login');
   const [f, setF] = useState<Form>(EMPTY);
   const [err, setErr] = useState<Partial<Record<keyof Form, string>>>({});
   const [show, setShow] = useState(false);
@@ -36,14 +37,15 @@ export default function AuthScreen({ onEnter }: { onEnter: (s: Session) => void 
   const [srv, setSrv] = useState('');
   const set = (k: keyof Form, v: string | boolean) => setF((p) => ({ ...p, [k]: v }));
   const reg = mode === 'register';
+  const resetting = mode === 'reset';
 
   function validate() {
     const e: Partial<Record<keyof Form, string>> = {};
     if (reg && f.name.trim().length < 2) e.name = 'Введите имя (минимум 2 символа)';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.email.trim())) e.email = 'Введите корректный email, например name@mail.com';
-    if (!reg) { if (!f.pass) e.pass = 'Введите пароль'; }
+    if (!resetting && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.email.trim())) e.email = 'Введите корректный email, например name@mail.com';
+    if (!reg && !resetting) { if (!f.pass) e.pass = 'Введите пароль'; }
     else if (f.pass.length < 8 || !/[A-Za-zА-Яа-я]/.test(f.pass) || !/\d/.test(f.pass)) e.pass = 'Минимум 8 символов, хотя бы одна буква и одна цифра';
-    if (reg && (!f.pass2 || f.pass2 !== f.pass)) e.pass2 = 'Пароли не совпадают';
+    if ((reg || resetting) && (!f.pass2 || f.pass2 !== f.pass)) e.pass2 = 'Пароли не совпадают';
     if (reg && !f.terms) e.terms = 'Необходимо принять условия';
     setErr(e);
     return Object.keys(e).length === 0;
@@ -54,8 +56,17 @@ export default function AuthScreen({ onEnter }: { onEnter: (s: Session) => void 
     if (!validate()) return;
     setBusy(true);
     try {
-      const s = reg ? await register(f.name.trim(), f.email.trim(), f.pass) : await login(f.email.trim(), f.pass);
-      onEnter(s);
+      if (resetting) {
+        if (!resetToken) throw new ApiError(400, 'Ссылка для сброса пароля недействительна');
+        await confirmPasswordReset(resetToken, f.pass);
+        window.history.replaceState(null, '', window.location.pathname);
+        setMode('login');
+        setF(EMPTY);
+        toast('Пароль изменён. Теперь войдите с новым паролем.');
+      } else {
+        const s = reg ? await register(f.name.trim(), f.email.trim(), f.pass) : await login(f.email.trim(), f.pass);
+        onEnter(s);
+      }
     } catch (e) {
       const a = e as ApiError;
       setSrv(a.status === 401 ? 'Неверный email или пароль' : a.status === 409 ? 'Пользователь с таким email уже существует' : a.message);
@@ -65,7 +76,10 @@ export default function AuthScreen({ onEnter }: { onEnter: (s: Session) => void 
   }
 
   async function forgot() {
-    try { await requestPasswordReset(f.email); } catch (e) { toast((e as Error).message); }
+    try {
+      await requestPasswordReset(f.email);
+      toast('Если аккаунт с таким email существует, инструкция отправлена на почту.');
+    } catch (e) { toast((e as Error).message); }
   }
 
   function google() {
@@ -81,51 +95,53 @@ export default function AuthScreen({ onEnter }: { onEnter: (s: Session) => void 
         <div className="wrap">
           <div className="card">
             <form className="formslot fade" key={mode} noValidate onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-              <h1>{reg ? 'Создайте аккаунт' : 'Добро пожаловать в Kochmon AI'}</h1>
-              <p className="sub">{reg ? 'Сохраняйте любимые места и пользуйтесь ИИ-поиском.' : 'Найди идеальное место для отдыха с помощью искусственного интеллекта.'}</p>
+              <h1>{resetting ? 'Новый пароль' : reg ? 'Создайте аккаунт' : 'Добро пожаловать в Kochmon AI'}</h1>
+              <p className="sub">{resetting ? 'Придумайте новый пароль для аккаунта.' : reg ? 'Сохраняйте любимые места и пользуйтесь ИИ-поиском.' : 'Найди идеальное место для отдыха с помощью искусственного интеллекта.'}</p>
               {srv && <div className="msg srv" role="alert">{srv}</div>}
               {reg && (
                 <Field label="Имя" error={err.name}>
                   <input type="text" autoComplete="name" placeholder="Айгерим" value={f.name} onChange={(e) => set('name', e.target.value)} />
                 </Field>
               )}
-              <Field label="Email" error={err.email}>
+              {!resetting && <Field label="Email" error={err.email}>
                 <input type="email" autoComplete="email" placeholder="you@example.com" value={f.email} onChange={(e) => set('email', e.target.value)} />
-              </Field>
+              </Field>}
               <Field label="Пароль" error={err.pass}>
-                <input type={show ? 'text' : 'password'} autoComplete={reg ? 'new-password' : 'current-password'} placeholder={reg ? 'Минимум 8 символов, буква и цифра' : 'Ваш пароль'} value={f.pass} onChange={(e) => set('pass', e.target.value)} />
+                <input type={show ? 'text' : 'password'} autoComplete={reg || resetting ? 'new-password' : 'current-password'} placeholder={reg || resetting ? 'Минимум 8 символов, буква и цифра' : 'Ваш пароль'} value={f.pass} onChange={(e) => set('pass', e.target.value)} />
                 <button type="button" className="eye" aria-label={show ? 'Скрыть пароль' : 'Показать пароль'} onClick={() => setShow(!show)}>{show ? '🙈' : '👁'}</button>
               </Field>
-              {reg ? (
+              {reg || resetting ? (
                 <>
                   <Field label="Подтверждение пароля" error={err.pass2}>
                     <input type={show ? 'text' : 'password'} autoComplete="new-password" placeholder="Повторите пароль" value={f.pass2} onChange={(e) => set('pass2', e.target.value)} />
                   </Field>
-                  <div className={'f' + (err.terms ? ' bad' : '')}>
+                  {reg && <div className={'f' + (err.terms ? ' bad' : '')}>
                     <label className="chk">
                       <input type="checkbox" checked={f.terms} onChange={(e) => set('terms', e.target.checked)} />
                       <span>Я принимаю <a href="/terms">условия использования</a> и <a href="/privacy">политику конфиденциальности</a></span>
                     </label>
                     <div className="msg">{err.terms}</div>
-                  </div>
+                  </div>}
                 </>
               ) : (
                 <div className="arow"><a href="#forgot" onClick={(e) => { e.preventDefault(); void forgot(); }}>Забыли пароль?</a></div>
               )}
               <button type="submit" className="btn pri" disabled={busy}>
-                {busy ? (<><span className="sp" />Подождите…</>) : reg ? 'Зарегистрироваться' : 'Войти'}
+                {busy ? (<><span className="sp" />Подождите…</>) : resetting ? 'Сменить пароль' : reg ? 'Зарегистрироваться' : 'Войти'}
               </button>
-              <div className="div">или</div>
-              <button type="button" className="btn gg" onClick={google}><GoogleIcon /> Продолжить с Google</button>
-              <div className="sw">
-                {reg ? 'Уже есть аккаунт? ' : 'Нет аккаунта? '}
-                <button type="button" className="lnk" onClick={() => { setMode(reg ? 'login' : 'register'); setErr({}); setSrv(''); }}>{reg ? 'Войти' : 'Зарегистрироваться'}</button>
-              </div>
+              {!resetting && <>
+                <div className="div">или</div>
+                <button type="button" className="btn gg" onClick={google}><GoogleIcon /> Продолжить с Google</button>
+                <div className="sw">
+                  {reg ? 'Уже есть аккаунт? ' : 'Нет аккаунта? '}
+                  <button type="button" className="lnk" onClick={() => { setMode(reg ? 'login' : 'register'); setErr({}); setSrv(''); }}>{reg ? 'Войти' : 'Зарегистрироваться'}</button>
+                </div>
+              </>}
             </form>
           </div>
-          <button type="button" className="btn guestbig" onClick={() => onEnter({ kind: 'guest', name: 'Гость' })}>
+          {!resetting && <button type="button" className="btn guestbig" onClick={() => onEnter({ kind: 'guest', name: 'Гость' })}>
             Продолжить как гость →
-          </button>
+          </button>}
         </div>
       </section>
     </div>

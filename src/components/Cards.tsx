@@ -21,7 +21,7 @@ export function ListingCard({ x, saved, onOpen, onSave }: { x: Item; saved: bool
         <p>{x.description}</p>
         <div className="pr">{x.price}</div>
         {x.kind === 'web' ? (
-          <a className="src" onClick={(e) => e.stopPropagation()}><Icon n="l" size={14} />{x.source}</a>
+          <a className="src" href={x.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}><Icon n="l" size={14} />{x.source}</a>
         ) : (
           <div className="meta">{[x.date, x.phone].filter(Boolean).join(' · ')}</div>
         )}
@@ -91,11 +91,15 @@ export function ItemDetail({ x, ad, saved, canEdit, onBack, onSave, onToast }: {
         </div>
         <div className="br">
           {x.kind === 'web' ? (
-            <button className="b p" style={{ flex: 1 }} onClick={() => onToast('Ссылка на источник появится, когда backend начнёт отдавать URL')}>Открыть источник</button>
+            x.url
+              ? <a className="b p" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }} href={x.url} target="_blank" rel="noopener noreferrer">Открыть источник</a>
+              : <button className="b p" style={{ flex: 1 }} onClick={() => onToast('Для этого предложения ссылка на источник недоступна')}>Открыть источник</button>
           ) : (
             <>
               <a className="b p" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }} href={x.phone ? `tel:${x.phone.replace(/\s/g, '')}` : undefined}>Позвонить</a>
-              <button className="b" style={{ flex: 1 }} onClick={() => onToast('Чат с автором пока не поддерживается backend')}>Написать</button>
+              {x.phone
+                ? <a className="b" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }} href={`https://wa.me/${x.phone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer">Написать в WhatsApp</a>
+                : <button className="b" style={{ flex: 1 }} onClick={() => onToast('У автора не указан номер телефона')}>Написать</button>}
             </>
           )}
         </div>

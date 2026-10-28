@@ -12,7 +12,9 @@ export interface Item {
   pos: string; // позиция демо-фото; пусто для реальных объявлений
   photo?: string;
   source?: string;
+  url?: string;
   status?: 'Доступно' | 'Недоступно';
+  dealType?: string;
   date?: string;
   phone?: string;
   likes?: number;
@@ -29,6 +31,7 @@ export interface Filters {
   onlyAvailable: boolean;
   priceMin?: string;
   priceMax?: string;
+  dealType?: string;
 }
 
 export type Tab = 'find' | 'saved' | 'prof';
@@ -37,6 +40,7 @@ export type View =
   | { k: 'item'; id: string; ad?: boolean }
   | { k: 'mine' }
   | { k: 'add' }
+  | { k: 'edit'; item: Item }
   | { k: 'adv' };
 
 export type SheetName = 'filters' | 'ideas' | 'ai' | 'need' | { k: 'confirm'; id: string };
