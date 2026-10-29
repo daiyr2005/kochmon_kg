@@ -100,7 +100,7 @@ export default function AuthScreen({ onEnter }: { onEnter: (s: Session) => void 
               {srv && <div className="msg srv" role="alert">{srv}</div>}
               {reg && (
                 <Field label="Имя" error={err.name}>
-                  <input type="text" autoComplete="name" placeholder="Айгерим" value={f.name} onChange={(e) => set('name', e.target.value)} />
+                  <input type="text" autoComplete="name" placeholder="your name" value={f.name} onChange={(e) => set('name', e.target.value)} />
                 </Field>
               )}
               {!resetting && <Field label="Email" error={err.email}>
@@ -108,7 +108,7 @@ export default function AuthScreen({ onEnter }: { onEnter: (s: Session) => void 
               </Field>}
               <Field label="Пароль" error={err.pass}>
                 <input type={show ? 'text' : 'password'} autoComplete={reg || resetting ? 'new-password' : 'current-password'} placeholder={reg || resetting ? 'Минимум 8 символов, буква и цифра' : 'Ваш пароль'} value={f.pass} onChange={(e) => set('pass', e.target.value)} />
-                <button type="button" className="eye" aria-label={show ? 'Скрыть пароль' : 'Показать пароль'} onClick={() => setShow(!show)}>{show ? '🙈' : '👁'}</button>
+                <button type="button" className="eye" aria-label={show ? 'Скрыть пароль' : 'Показать пароль'} onClick={() => setShow(!show)}>{show ? '👁' : '🙈'}</button>
               </Field>
               {reg || resetting ? (
                 <>
